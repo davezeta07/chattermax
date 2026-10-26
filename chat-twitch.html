@@ -44,6 +44,14 @@ footer input{flex:1;min-width:0}
 #video iframe{width:100%;height:100%;border:0}
 #main.vid #panes{flex:1;min-width:320px;border-left:1px solid var(--line)}
 @media(max-width:800px){#main{flex-direction:column}#main.vid #video{flex:none;aspect-ratio:16/9}#main.vid #panes{border-left:0;border-top:1px solid var(--line)}}
+#rp{display:flex;gap:.5rem;align-items:center;padding:.4rem .8rem;background:var(--panel);border-top:1px solid var(--line);color:var(--mut);font-size:13px}
+#rpt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#rp button{padding:.1rem .5rem}
+.rc{color:var(--mut);font-size:12px;overflow-wrap:anywhere}
+#cm{position:fixed;z-index:10;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.25rem;min-width:210px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+#cm button{display:block;width:100%;text-align:left;background:transparent;color:var(--tx);border:0;font-weight:400}
+#cm button:hover,#cm button:focus-visible{background:var(--line)}
+#toast{position:fixed;bottom:4.5rem;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.4rem .8rem;z-index:20}
 </style></head><body>
 
 <section id="setup" class="hide">
@@ -68,6 +76,9 @@ footer input{flex:1;min-width:0}
   </header>
   <nav id="tabs" aria-label="Canales abiertos"></nav>
   <div id="main"><div id="video"></div><main id="panes" aria-live="polite"></main></div>
+  <div id="rp" class="hide"><span id="rpt"></span><button id="rpx" class="sec" aria-label="Cancelar respuesta">✕</button></div>
+  <div id="cm" class="hide" role="menu"></div>
+  <div id="toast" class="hide" role="status"></div>
   <footer>
     <input id="msg" placeholder="Escribe un mensaje" maxlength="500" autocomplete="off">
     <button id="send">Enviar</button>
@@ -82,6 +93,8 @@ const BADGE={broadcaster:'Streamer',moderator:'Mod',lead_moderator:'Mod principa
 const CLIENT_ID='wtuifpaixy5m6dcepceoi0hoey7adz';
 const fixed=!CLIENT_ID.startsWith('PEGA');
 const redirect=location.origin+location.pathname;
+const unesc=v=>v.replace(/\\(.)/g,(m,c)=>({s:' ',':':';',r:'\r',n:'\n','\\':'\\'}[c]??c));
+let replyTo=null;
 let vid=ls.get('vid')==='1';
 let token=ls.get('tok'),me=null,ws=null,chans=[],active=null,panes={},tabs={},ustate={};
 
@@ -163,6 +176,7 @@ function select(n){
   active=n;
   for(const c of chans){panes[c].classList.toggle('on',c===n);tabs[c].classList.toggle('on',c===n)}
   tabs[n].classList.remove('new');panes[n].scrollTop=panes[n].scrollHeight;showVideo();
+  if(replyTo&&replyTo.chan!==n)clearReply();
 }
 function close(n){
   if(ws&&ws.readyState===1)ws.send('PART #'+n);
@@ -186,7 +200,7 @@ function connect(){
 
 function parse(l){
   const tags={};
-  if(l[0]==='@'){const i=l.indexOf(' ');l.slice(1,i).split(';').forEach(p=>{const j=p.indexOf('=');tags[p.slice(0,j)]=p.slice(j+1)});l=l.slice(i+1)}
+  if(l[0]==='@'){const i=l.indexOf(' ');l.slice(1,i).split(';').forEach(p=>{const j=p.indexOf('=');tags[p.slice(0,j)]=unesc(p.slice(j+1))});l=l.slice(i+1)}
   const m=l.match(/^(?::(\S+) )?(\S+)(?: (.*))?$/)||[];
   return{tags,prefix:m[1]||'',cmd:m[2]||'',rest:m[3]||''};
 }
@@ -214,11 +228,39 @@ function send(){
   if(!t||!active||!ws||ws.readyState!==1)return;
   const act=/^\/me\s/i.test(t);
   if(t[0]==='/'&&!act){sys(active,'Ese comando todavía no está disponible. Llega en la etapa de moderación.');i.value='';return}
-  ws.send('PRIVMSG #'+active+' :'+t);
-  add(active,ustate[active]||{},me.login,act?t.slice(4):t,act);
-  i.value='';
+  const rt=replyTo&&replyTo.chan===active?replyTo:null;
+  ws.send((rt?'@reply-parent-msg-id='+rt.id+' ':'')+'PRIVMSG #'+active+' :'+t);
+  add(active,Object.assign({},ustate[active]||{},rt?{'reply-parent-msg-id':rt.id,'reply-parent-display-name':rt.name,'reply-parent-msg-body':rt.body}:{}),me.login,act?t.slice(4):t,act);
+  clearReply();i.value='';
 }
 
+const cm=$('#cm');
+function menu(x,y,m){
+  cm.innerHTML='';
+  const item=(t,f)=>{const b=document.createElement('button');b.setAttribute('role','menuitem');b.textContent=t;b.onclick=()=>{hideMenu();f()};cm.append(b)};
+  item('Copiar mensaje',()=>copy(m.text));
+  item('Copiar mensaje completo',()=>copy('['+m.time+'] '+m.badges.map(b=>'['+b+'] ').join('')+m.name+(m.act?' ':': ')+m.text));
+  if(m.id)item('Responder',()=>reply(m));
+  cm.classList.remove('hide');
+  cm.style.left=Math.max(4,Math.min(x,innerWidth-cm.offsetWidth-8))+'px';
+  cm.style.top=Math.max(4,Math.min(y,innerHeight-cm.offsetHeight-8))+'px';
+  cm.firstChild.focus();
+}
+function hideMenu(){cm.classList.add('hide')}
+async function copy(t){try{await navigator.clipboard.writeText(t);toast('Copiado')}catch{toast('No se pudo copiar')}}
+function toast(t){const d=$('#toast');d.textContent=t;d.classList.remove('hide');clearTimeout(toast.t);toast.t=setTimeout(()=>d.classList.add('hide'),1500)}
+function reply(m){
+  replyTo={id:m.id,chan:m.chan,name:m.name,body:m.text};
+  $('#rpt').textContent='Respondiendo a @'+m.name+': '+m.text;
+  $('#rp').classList.remove('hide');
+  const i=$('#msg');i.value='@'+m.login+' ';i.focus();
+}
+function clearReply(){replyTo=null;$('#rp').classList.add('hide')}
+$('#rpx').onclick=clearReply;
+$('#panes').addEventListener('contextmenu',e=>{const r=e.target.closest('.m');if(!r||!r._m)return;e.preventDefault();menu(e.clientX,e.clientY,r._m)});
+$('#panes').addEventListener('scroll',hideMenu,true);
+document.addEventListener('click',e=>{if(!cm.contains(e.target))hideMenu()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){hideMenu();clearReply()}});
 function sys(c,t){const d=document.createElement('div');d.className='sys';d.textContent=t;push(c,d)}
 function push(c,el){
   const p=panes[c],near=p.scrollHeight-p.scrollTop-p.clientHeight<80;
@@ -231,12 +273,13 @@ function colorOf(n){let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))%360;retu
 function add(c,tags,login,text,act){
   const row=document.createElement('div');
   row.className='m'+(act?' act':'');row.dataset.id=tags.id||'';
+  if(tags['reply-parent-msg-id']){const rc=document.createElement('div');rc.className='rc';rc.textContent='↳ Respondiendo a @'+(tags['reply-parent-display-name']||'')+': '+(tags['reply-parent-msg-body']||'');row.append(rc)}
   const tm=document.createElement('time');
   tm.textContent=new Date(+tags['tmi-sent-ts']||Date.now()).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-  row.append(tm);
+  row.append(tm);const badges=[];
   (tags.badges||'').split(',').filter(Boolean).forEach(b=>{
     const n=BADGE[b.split('/')[0]];
-    if(n){const s=document.createElement('span');s.className='bd';s.textContent=n;row.append(s)}
+    if(n){const s=document.createElement('span');s.className='bd';s.textContent=n;row.append(s);badges.push(n)}
   });
   const u=document.createElement('span');u.className='u';
   u.textContent=tags['display-name']||login;u.style.color=tags.color||colorOf(login);
@@ -255,7 +298,9 @@ function add(c,tags,login,text,act){
     im.alt=im.title=cp.slice(a,b+1).join('');im.className='em';body.append(im);i=b+1;
   });
   body.append(cp.slice(i).join(''));
-  row.append(body);push(c,row);
+  row.append(body);
+  row._m={id:tags.id||'',login,name:tags['display-name']||login,time:tm.textContent,badges,text,act,chan:c};
+  push(c,row);
 }
 init();
 </script></body></html>
