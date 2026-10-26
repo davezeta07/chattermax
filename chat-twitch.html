@@ -21,13 +21,29 @@ button.sec{background:var(--bg);color:var(--tx);border-color:var(--line);font-we
 header{display:flex;gap:.5rem;align-items:center;padding:.6rem .8rem;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
 header input{width:min(220px,50vw)}
 #st{color:var(--mut);font-size:13px;margin-left:auto}
-#chat{flex:1;overflow-y:auto;padding:.6rem .9rem}
-.m{padding:.12rem 0;word-wrap:break-word;overflow-wrap:anywhere}
+#tabs{display:flex;gap:.3rem;padding:.4rem .8rem 0;overflow-x:auto;border-bottom:1px solid var(--line)}
+.tab{display:flex;flex:none;border:1px solid var(--line);border-bottom:0;border-radius:6px 6px 0 0;overflow:hidden}
+.tab button{border:0;border-radius:0;padding:.3rem .6rem}
+.tab .x{padding:.3rem .45rem;color:var(--mut)}
+.tab.on{background:var(--panel)}.tab.on button.sec{background:var(--panel)}
+.tab.new>button:first-child::after{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ac);margin-left:.4rem}
+#panes{flex:1;position:relative;min-height:0}
+.pane{position:absolute;inset:0;overflow-y:auto;padding:.6rem .9rem}
+.pane:not(.on){display:none}
+.m{padding:.12rem 0;overflow-wrap:anywhere}
 .m time{color:var(--mut);font-size:12px;margin-right:.45rem}
 .bd{font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 .3rem;margin-right:.3rem;color:var(--mut)}
 .u{font-weight:700}.em{height:1.5em;vertical-align:middle;margin:0 1px}
 .act .t{font-style:italic}.del .t{text-decoration:line-through;opacity:.5}
 .sys{color:var(--mut);font-size:13px;padding:.2rem 0}
+footer{display:flex;gap:.5rem;padding:.6rem .8rem;background:var(--panel);border-top:1px solid var(--line)}
+footer input{flex:1;min-width:0}
+#main{flex:1;display:flex;min-height:0}
+#video{display:none;flex:2;min-width:0;background:#000}
+#main.vid #video{display:block}
+#video iframe{width:100%;height:100%;border:0}
+#main.vid #panes{flex:1;min-width:320px;border-left:1px solid var(--line)}
+@media(max-width:800px){#main{flex-direction:column}#main.vid #video{flex:none;aspect-ratio:16/9}#main.vid #panes{border-left:0;border-top:1px solid var(--line)}}
 </style></head><body>
 
 <section id="setup" class="hide">
@@ -44,23 +60,30 @@ header input{width:min(220px,50vw)}
 
 <div id="app" class="hide">
   <header>
-    <input id="chan" placeholder="Canal (ej. feeden_)" autocomplete="off">
-    <button id="go">Entrar al chat</button>
+    <input id="chan" placeholder="Añadir canal (ej. feeden_)" autocomplete="off">
+    <button id="go">Añadir canal</button>
+    <button id="tv" class="sec">Ver stream</button>
     <button id="out" class="sec">Cerrar sesión</button>
     <span id="st"></span>
   </header>
-  <main id="chat" aria-live="polite"></main>
+  <nav id="tabs" aria-label="Canales abiertos"></nav>
+  <div id="main"><div id="video"></div><main id="panes" aria-live="polite"></main></div>
+  <footer>
+    <input id="msg" placeholder="Escribe un mensaje" maxlength="500" autocomplete="off">
+    <button id="send">Enviar</button>
+  </footer>
 </div>
 
 <script>
 const $=s=>document.querySelector(s);
 const ls={get:k=>{try{return localStorage.getItem(k)}catch{return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch{}},del:k=>{try{localStorage.removeItem(k)}catch{}}};
 const BADGE={broadcaster:'Streamer',moderator:'Mod',lead_moderator:'Mod principal',vip:'VIP',subscriber:'Sub',founder:'Fundador',staff:'Staff'};
-const redirect=location.origin+location.pathname;
-let token=ls.get('tok'),me=null,ws=null,box=$('#chat');
-// Pega aquí tu Client ID (no es secreto). Así los demás solo pulsan "Iniciar sesión".
+// Client ID público de la app (no es secreto). Así los demás solo pulsan "Iniciar sesión".
 const CLIENT_ID='wtuifpaixy5m6dcepceoi0hoey7adz';
 const fixed=!CLIENT_ID.startsWith('PEGA');
+const redirect=location.origin+location.pathname;
+let vid=ls.get('vid')==='1';
+let token=ls.get('tok'),me=null,ws=null,chans=[],active=null,panes={},tabs={},ustate={};
 
 $('#redir').textContent=redirect;
 $('#cid').value=ls.get('cid')||'';
@@ -71,11 +94,13 @@ $('#login').onclick=()=>{
   if(!cid){$('#err').textContent='Escribe tu Client ID.';return}
   ls.set('cid',cid);
   const st=crypto.randomUUID();sessionStorage.setItem('st',st);
-  location.href='https://id.twitch.tv/oauth2/authorize?'+new URLSearchParams({client_id:cid,redirect_uri:redirect,response_type:'token',scope:'chat:read',state:st});
+  location.href='https://id.twitch.tv/oauth2/authorize?'+new URLSearchParams({client_id:cid,redirect_uri:redirect,response_type:'token',scope:'chat:read chat:edit',state:st});
 };
-$('#out').onclick=()=>{ls.del('tok');token=null;if(ws)ws.close();ws=null;show('setup')};
-$('#go').onclick=()=>join($('#chan').value);
-$('#chan').onkeydown=e=>{if(e.key==='Enter')join(e.target.value)};
+$('#out').onclick=()=>logout();
+$('#go').onclick=()=>{open($('#chan').value);$('#chan').value=''};
+$('#chan').onkeydown=e=>{if(e.key==='Enter')$('#go').click()};
+$('#send').onclick=()=>send();
+$('#msg').onkeydown=e=>{if(e.key==='Enter')send()};
 
 function show(w,msg){
   $('#setup').classList.toggle('hide',w!=='setup');
@@ -83,6 +108,7 @@ function show(w,msg){
   if(msg)$('#err').textContent=msg;
 }
 function status(t){$('#st').textContent=t}
+function logout(msg){ls.del('tok');token=null;if(ws){ws.onclose=null;ws.close()}ws=null;show('setup',msg)}
 
 async function init(){
   const h=new URLSearchParams(location.hash.slice(1));
@@ -95,24 +121,67 @@ async function init(){
     const r=await fetch('https://id.twitch.tv/oauth2/validate',{headers:{Authorization:'OAuth '+token}});
     if(!r.ok)throw 0;
     me=await r.json();
-    show('app');status('Sesión: '+me.login);
-    const last=ls.get('chan');if(last){$('#chan').value=last;join(last)}
-  }catch{ls.del('tok');token=null;show('setup','Tu sesión expiró. Inicia sesión otra vez.')}
+  }catch{return logout('Tu sesión expiró. Inicia sesión otra vez.')}
+  if(!(me.scopes||[]).includes('chat:edit'))return logout('Ahora la app también escribe en el chat. Inicia sesión otra vez para aceptar el permiso.');
+  show('app');
+  let saved=[];try{saved=JSON.parse(ls.get('chans')||'[]')}catch{}
+  const old=ls.get('chan');if(!saved.length&&old)saved=[old];
+  saved.forEach(c=>open(c,false));
+  if(chans.length)select(chans[0]);else status('Añade un canal para empezar');
+  connect();
 }
 
-function join(name){
+function open(name,sel=true){
   name=name.trim().toLowerCase().replace(/^#/,'');
-  if(!name||!me)return;
-  ls.set('chan',name);box.innerHTML='';
+  if(!name)return;
+  if(!chans.includes(name)){
+    chans.push(name);ls.set('chans',JSON.stringify(chans));
+    const p=document.createElement('div');p.className='pane';$('#panes').append(p);panes[name]=p;
+    const t=document.createElement('div');t.className='tab';
+    const b=document.createElement('button');b.className='sec';b.textContent=name;b.onclick=()=>select(name);
+    const x=document.createElement('button');x.className='sec x';x.textContent='✕';x.title='Cerrar #'+name;x.setAttribute('aria-label','Cerrar '+name);x.onclick=()=>close(name);
+    t.append(b,x);$('#tabs').append(t);tabs[name]=t;
+    if(ws&&ws.readyState===1)ws.send('JOIN #'+name);
+  }
+  if(sel)select(name);
+}
+function showVideo(){
+  $('#main').classList.toggle('vid',vid&&!!active);
+  const v=$('#video');
+  if(vid&&active){
+    if(v.dataset.ch!==active){
+      v.dataset.ch=active;v.innerHTML='';
+      const f=document.createElement('iframe');
+      f.src='https://player.twitch.tv/?channel='+encodeURIComponent(active)+'&parent='+location.hostname;
+      f.allowFullscreen=true;f.title='Stream de '+active;v.append(f);
+    }
+  }else{v.innerHTML='';v.dataset.ch=''}
+  $('#tv').textContent=vid?'Ocultar stream':'Ver stream';
+}
+$('#tv').onclick=()=>{vid=!vid;ls.set('vid',vid?'1':'0');showVideo()};
+function select(n){
+  active=n;
+  for(const c of chans){panes[c].classList.toggle('on',c===n);tabs[c].classList.toggle('on',c===n)}
+  tabs[n].classList.remove('new');panes[n].scrollTop=panes[n].scrollHeight;showVideo();
+}
+function close(n){
+  if(ws&&ws.readyState===1)ws.send('PART #'+n);
+  panes[n].remove();tabs[n].remove();delete panes[n];delete tabs[n];
+  chans=chans.filter(c=>c!==n);ls.set('chans',JSON.stringify(chans));
+  if(active===n){active=null;if(chans.length)select(chans[chans.length-1]);else showVideo()}
+}
+
+function connect(){
   if(ws){ws.onclose=null;ws.close()}
-  const sock=ws=new WebSocket('wss://irc-ws.chat.twitch.tv:443');
-  sock.onopen=()=>{
-    sock.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
-    sock.send('PASS oauth:'+token);sock.send('NICK '+me.login);sock.send('JOIN #'+name);
-    status('Conectando a #'+name+'…');
+  const s=ws=new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+  s.onopen=()=>{
+    s.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+    s.send('PASS oauth:'+token);s.send('NICK '+me.login);
+    chans.forEach(c=>s.send('JOIN #'+c));
+    status('Conectado como '+me.login);
   };
-  sock.onmessage=e=>e.data.split('\r\n').filter(Boolean).forEach(l=>handle(l,sock,name));
-  sock.onclose=()=>{if(ws===sock){status('Desconectado. Reintentando…');setTimeout(()=>ws===sock&&join(name),3000)}};
+  s.onmessage=e=>e.data.split('\r\n').filter(Boolean).forEach(l=>handle(l,s));
+  s.onclose=()=>{if(ws===s){status('Desconectado. Reintentando…');setTimeout(()=>ws===s&&connect(),3000)}};
 }
 
 function parse(l){
@@ -122,30 +191,44 @@ function parse(l){
   return{tags,prefix:m[1]||'',cmd:m[2]||'',rest:m[3]||''};
 }
 
-function handle(line,sock,name){
-  if(line.startsWith('PING')){sock.send('PONG :tmi.twitch.tv');return}
+function handle(line,s){
+  if(line.startsWith('PING')){s.send('PONG :tmi.twitch.tv');return}
   const{tags,prefix,cmd,rest}=parse(line);
-  if(cmd==='ROOMSTATE')status('Conectado a #'+name);
-  else if(cmd==='NOTICE'&&/authentication failed/i.test(rest)){ls.del('tok');token=null;show('setup','No se pudo iniciar sesión. Inténtalo otra vez.')}
-  else if(cmd==='CLEARMSG'){const el=box.querySelector('[data-id="'+tags['target-msg-id']+'"]');if(el)el.classList.add('del')}
-  else if(cmd==='CLEARCHAT'){sys(rest.includes(':')?rest.split(':').pop()+' fue expulsado del chat.':'El chat fue limpiado.')}
-  else if(cmd==='PRIVMSG'){
-    let text=rest.slice(rest.indexOf(' :')+2),act=false;
-    if(text.startsWith('\x01ACTION ')){act=true;text=text.slice(8).replace(/\x01$/,'')}
-    add(tags,prefix.split('!')[0],text,act);
+  const c=(rest.match(/^#(\S+)/)||[])[1];
+  const text=rest.includes(' :')?rest.slice(rest.indexOf(' :')+2):'';
+  if(cmd==='USERSTATE'&&c)ustate[c]=tags;
+  else if(cmd==='NOTICE'&&/authentication failed/i.test(rest))logout('No se pudo iniciar sesión. Inténtalo otra vez.');
+  else if(cmd==='NOTICE'&&panes[c])sys(c,text);
+  else if(cmd==='CLEARMSG'&&panes[c]){const el=panes[c].querySelector('[data-id="'+tags['target-msg-id']+'"]');if(el)el.classList.add('del')}
+  else if(cmd==='CLEARCHAT'&&panes[c])sys(c,text?text+' fue expulsado del chat.':'El chat fue limpiado.');
+  else if(cmd==='PRIVMSG'&&panes[c]){
+    let t=text,act=false;
+    if(t.startsWith('\x01ACTION ')){act=true;t=t.slice(8).replace(/\x01$/,'')}
+    add(c,tags,prefix.split('!')[0],t,act);
+    if(c!==active)tabs[c].classList.add('new');
   }
 }
 
-function sys(t){const d=document.createElement('div');d.className='sys';d.textContent=t;push(d)}
-function push(el){
-  const near=box.scrollHeight-box.scrollTop-box.clientHeight<80;
-  box.append(el);
-  while(box.children.length>500)box.firstChild.remove();
-  if(near)box.scrollTop=box.scrollHeight;
+function send(){
+  const i=$('#msg'),t=i.value.trim();
+  if(!t||!active||!ws||ws.readyState!==1)return;
+  const act=/^\/me\s/i.test(t);
+  if(t[0]==='/'&&!act){sys(active,'Ese comando todavía no está disponible. Llega en la etapa de moderación.');i.value='';return}
+  ws.send('PRIVMSG #'+active+' :'+t);
+  add(active,ustate[active]||{},me.login,act?t.slice(4):t,act);
+  i.value='';
 }
-function colorOf(n){let h=0;for(const c of n)h=(h*31+c.charCodeAt(0))%360;return'hsl('+h+',70%,68%)'}
 
-function add(tags,login,text,act){
+function sys(c,t){const d=document.createElement('div');d.className='sys';d.textContent=t;push(c,d)}
+function push(c,el){
+  const p=panes[c],near=p.scrollHeight-p.scrollTop-p.clientHeight<80;
+  p.append(el);
+  while(p.children.length>500)p.firstChild.remove();
+  if(near)p.scrollTop=p.scrollHeight;
+}
+function colorOf(n){let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))%360;return'hsl('+h+',70%,68%)'}
+
+function add(c,tags,login,text,act){
   const row=document.createElement('div');
   row.className='m'+(act?' act':'');row.dataset.id=tags.id||'';
   const tm=document.createElement('time');
@@ -172,7 +255,7 @@ function add(tags,login,text,act){
     im.alt=im.title=cp.slice(a,b+1).join('');im.className='em';body.append(im);i=b+1;
   });
   body.append(cp.slice(i).join(''));
-  row.append(body);push(row);
+  row.append(body);push(c,row);
 }
 init();
 </script></body></html>
