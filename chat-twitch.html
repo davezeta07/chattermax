@@ -58,12 +58,16 @@ const ls={get:k=>{try{return localStorage.getItem(k)}catch{return null}},set:(k,
 const BADGE={broadcaster:'Streamer',moderator:'Mod',lead_moderator:'Mod principal',vip:'VIP',subscriber:'Sub',founder:'Fundador',staff:'Staff'};
 const redirect=location.origin+location.pathname;
 let token=ls.get('tok'),me=null,ws=null,box=$('#chat');
+// Pega aquí tu Client ID (no es secreto). Así los demás solo pulsan "Iniciar sesión".
+const CLIENT_ID='PEGA_AQUI_TU_CLIENT_ID';
+const fixed=!CLIENT_ID.startsWith('PEGA');
 
 $('#redir').textContent=redirect;
 $('#cid').value=ls.get('cid')||'';
+if(fixed){$('#setup ol').classList.add('hide');$('#cid').classList.add('hide')}
 
 $('#login').onclick=()=>{
-  const cid=$('#cid').value.trim();
+  const cid=fixed?CLIENT_ID:$('#cid').value.trim();
   if(!cid){$('#err').textContent='Escribe tu Client ID.';return}
   ls.set('cid',cid);
   const st=crypto.randomUUID();sessionStorage.setItem('st',st);
