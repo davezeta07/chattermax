@@ -303,7 +303,7 @@ function openPin(m){pinM=m;$('#pdt').textContent=m.name+': '+m.text;$('#pd').sho
 $('#pdno').onclick=()=>$('#pd').close();
 $('#pdok').onclick=async()=>{
   const m=pinM,v=+$('#pds').value;$('#pd').close();
-  try{const p={...await qry(m.chan),message_id:m.id};if(v)p.duration_seconds=v;await api('POST','chat/pins',p);toast('Mensaje fijado')}
+  try{const p={...await qry(m.chan),message_id:m.id};if(v)p.duration_seconds=v;await api('PUT','chat/pins',p);toast('Mensaje fijado')}
   catch(e){sys(m.chan,'No se pudo fijar: '+e.message)}
 };
 function sub(m,a){
