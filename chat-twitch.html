@@ -48,10 +48,15 @@ footer input{flex:1;min-width:0}
 #rpt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #rp button{padding:.1rem .5rem}
 .rc{color:var(--mut);font-size:12px;overflow-wrap:anywhere}
-#cm{position:fixed;z-index:10;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.25rem;min-width:210px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
-#cm button{display:block;width:100%;text-align:left;background:transparent;color:var(--tx);border:0;font-weight:400}
-#cm button:hover,#cm button:focus-visible{background:var(--line)}
+#cm,#cm2{position:fixed;z-index:10;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.25rem;min-width:210px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+#cm button,#cm2 button{display:block;width:100%;text-align:left;background:transparent;color:var(--tx);border:0;font-weight:400}
+#cm button:hover,#cm button:focus-visible,#cm2 button:hover,#cm2 button:focus-visible{background:var(--line)}
 #toast{position:fixed;bottom:4.5rem;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.4rem .8rem;z-index:20}
+#pd{background:var(--panel);color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:1rem;width:min(420px,90vw)}
+#pd::backdrop{background:rgba(0,0,0,.6)}
+#pd select{width:100%;margin:.4rem 0 .9rem}
+#pdt{color:var(--mut);overflow-wrap:anywhere;max-height:5em;overflow:auto;margin:.5rem 0 .8rem}
+#pd .row{display:flex;gap:.5rem;justify-content:flex-end}
 </style></head><body>
 
 <section id="setup" class="hide">
@@ -79,6 +84,12 @@ footer input{flex:1;min-width:0}
   <div id="rp" class="hide"><span id="rpt"></span><button id="rpx" class="sec" aria-label="Cancelar respuesta">✕</button></div>
   <div id="cm" class="hide" role="menu"></div>
   <div id="toast" class="hide" role="status"></div>
+  <div id="cm2" class="hide" role="menu"></div>
+  <dialog id="pd"><strong>Fijar mensaje</strong><p id="pdt"></p>
+    <label for="pds">¿Por cuánto tiempo?</label>
+    <select id="pds"><option value="30">30 segundos</option><option value="60">1 minuto</option><option value="300">5 minutos</option><option value="600" selected>10 minutos</option><option value="1200">20 minutos</option><option value="1800">30 minutos</option><option value="0">Hasta que termine el stream</option></select>
+    <div class="row"><button id="pdno" class="sec">Cancelar</button><button id="pdok">Fijar</button></div>
+  </dialog>
   <footer>
     <input id="msg" placeholder="Escribe un mensaje" maxlength="500" autocomplete="off">
     <button id="send">Enviar</button>
@@ -94,6 +105,7 @@ const CLIENT_ID='wtuifpaixy5m6dcepceoi0hoey7adz';
 const fixed=!CLIENT_ID.startsWith('PEGA');
 const redirect=location.origin+location.pathname;
 const unesc=v=>v.replace(/\\(.)/g,(m,c)=>({s:' ',':':';',r:'\r',n:'\n','\\':'\\'}[c]??c));
+const SCOPES=['chat:read','chat:edit','moderator:manage:banned_users','moderator:manage:chat_messages','moderator:manage:warnings','moderator:manage:suspicious_users'];
 let replyTo=null;
 let vid=ls.get('vid')==='1';
 let token=ls.get('tok'),me=null,ws=null,chans=[],active=null,panes={},tabs={},ustate={};
@@ -107,7 +119,7 @@ $('#login').onclick=()=>{
   if(!cid){$('#err').textContent='Escribe tu Client ID.';return}
   ls.set('cid',cid);
   const st=crypto.randomUUID();sessionStorage.setItem('st',st);
-  location.href='https://id.twitch.tv/oauth2/authorize?'+new URLSearchParams({client_id:cid,redirect_uri:redirect,response_type:'token',scope:'chat:read chat:edit',state:st});
+  location.href='https://id.twitch.tv/oauth2/authorize?'+new URLSearchParams({client_id:cid,redirect_uri:redirect,response_type:'token',scope:SCOPES.join(' '),state:st});
 };
 $('#out').onclick=()=>logout();
 $('#go').onclick=()=>{open($('#chan').value);$('#chan').value=''};
@@ -135,7 +147,7 @@ async function init(){
     if(!r.ok)throw 0;
     me=await r.json();
   }catch{return logout('Tu sesión expiró. Inicia sesión otra vez.')}
-  if(!(me.scopes||[]).includes('chat:edit'))return logout('Ahora la app también escribe en el chat. Inicia sesión otra vez para aceptar el permiso.');
+  if(!SCOPES.every(x=>(me.scopes||[]).includes(x)))return logout('La app ahora también modera. Inicia sesión otra vez para aceptar los permisos nuevos.');
   show('app');
   let saved=[];try{saved=JSON.parse(ls.get('chans')||'[]')}catch{}
   const old=ls.get('chan');if(!saved.length&&old)saved=[old];
@@ -227,13 +239,82 @@ function send(){
   const i=$('#msg'),t=i.value.trim();
   if(!t||!active||!ws||ws.readyState!==1)return;
   const act=/^\/me\s/i.test(t);
-  if(t[0]==='/'&&!act){sys(active,'Ese comando todavía no está disponible. Llega en la etapa de moderación.');i.value='';return}
+  if(t[0]==='/'&&!act){runCmd(active,t);i.value='';return}
   const rt=replyTo&&replyTo.chan===active?replyTo:null;
   ws.send((rt?'@reply-parent-msg-id='+rt.id+' ':'')+'PRIVMSG #'+active+' :'+t);
   add(active,Object.assign({},ustate[active]||{},rt?{'reply-parent-msg-id':rt.id,'reply-parent-display-name':rt.name,'reply-parent-msg-body':rt.body}:{}),me.login,act?t.slice(4):t,act);
   clearReply();i.value='';
 }
 
+const cm2=$('#cm2');
+const cidNow=()=>fixed?CLIENT_ID:ls.get('cid');
+async function api(method,path,params,body){
+  const u=new URL('https://api.twitch.tv/helix/'+path);
+  for(const[k,v]of Object.entries(params||{}))u.searchParams.set(k,v);
+  const h={'Authorization':'Bearer '+token,'Client-Id':cidNow()};
+  if(body)h['Content-Type']='application/json';
+  const r=await fetch(u,{method,headers:h,body:body?JSON.stringify(body):undefined});
+  if(!r.ok){let m='';try{m=(await r.json()).message}catch{}throw new Error(m||'Error '+r.status)}
+  try{return await r.json()}catch{return null}
+}
+const idc={};
+async function uid(login){
+  login=login.toLowerCase().replace(/^@/,'');
+  if(idc[login])return idc[login];
+  const d=await api('GET','users',{login});
+  if(!d.data.length)throw new Error('No existe el usuario '+login);
+  return idc[login]=d.data[0].id;
+}
+const qry=async c=>({broadcaster_id:await uid(c),moderator_id:me.user_id});
+function isMod(c){const t=ustate[c];return !!t&&(t.mod==='1'||/(^|,)(broadcaster|moderator|lead_moderator)\//.test(t.badges||''))}
+const DUR=s=>{const m=/^(\d+)([smhdw]?)$/i.exec(s);return m?+m[1]*{s:1,m:60,h:3600,d:86400,w:604800}[(m[2]||'s').toLowerCase()]:null};
+const fmt=d=>d%86400===0?d/86400+' d':d%3600===0?d/3600+' h':d%60===0?d/60+' min':d+' s';
+async function runCmd(c,t){
+  const[cmd,user,...rest]=t.slice(1).split(/\s+/);const k=cmd.toLowerCase();
+  if(!['ban','unban','timeout','untimeout','warn','monitor','restrict','unmonitor','unrestrict'].includes(k))return sys(c,'Comando no reconocido: /'+k);
+  if(ustate[c]&&!isMod(c))return sys(c,'Solo los moderadores y el streamer pueden usar /'+k+' en este canal.');
+  if(!user)return sys(c,'Falta el usuario. Ejemplo: /'+k+' usuario');
+  try{
+    const q=await qry(c),id=await uid(user),name=user.replace(/^@/,'');
+    if(k==='timeout'){
+      let d=600;if(rest.length&&DUR(rest[0])!==null)d=DUR(rest.shift());
+      if(d<1||d>1209600)throw new Error('La duración va de 1 segundo a 14 días.');
+      const data={user_id:id,duration:d};if(rest.length)data.reason=rest.join(' ');
+      await api('POST','moderation/bans',q,{data});sys(c,name+' recibió un timeout de '+fmt(d)+'.');
+    }else if(k==='ban'){
+      const data={user_id:id};if(rest.length)data.reason=rest.join(' ');
+      await api('POST','moderation/bans',q,{data});sys(c,name+' fue baneado.');
+    }else if(k==='unban'||k==='untimeout'){
+      await api('DELETE','moderation/bans',{...q,user_id:id});sys(c,k==='unban'?name+' fue desbaneado.':'Se quitó el timeout a '+name+'.');
+    }else if(k==='warn'){
+      if(!rest.length)throw new Error('Escribe el motivo. Ejemplo: /warn usuario motivo');
+      await api('POST','moderation/warnings',q,{data:{user_id:id,reason:rest.join(' ')}});sys(c,'Advertencia enviada a '+name+'.');
+    }else if(k==='monitor'||k==='restrict'){
+      await api('POST','moderation/suspicious_users',q,{user_id:id,status:k==='monitor'?'ACTIVE_MONITORING':'RESTRICTED'});
+      sys(c,name+(k==='monitor'?' está en vigilancia.':' quedó restringido.'));
+    }else{
+      await api('DELETE','moderation/suspicious_users',{...q,user_id:id});sys(c,'Se quitó el estado de sospechoso a '+name+'.');
+    }
+  }catch(e){sys(c,'No se pudo: '+e.message)}
+}
+async function delMsg(m){try{await api('DELETE','moderation/chat',{...await qry(m.chan),message_id:m.id})}catch(e){sys(m.chan,'No se pudo borrar: '+e.message)}}
+let pinM=null;
+function openPin(m){pinM=m;$('#pdt').textContent=m.name+': '+m.text;$('#pd').showModal()}
+$('#pdno').onclick=()=>$('#pd').close();
+$('#pdok').onclick=async()=>{
+  const m=pinM,v=+$('#pds').value;$('#pd').close();
+  try{const p={...await qry(m.chan),message_id:m.id};if(v)p.duration_seconds=v;await api('POST','chat/pins',p);toast('Mensaje fijado')}
+  catch(e){sys(m.chan,'No se pudo fijar: '+e.message)}
+};
+function sub(m,a){
+  cm2.innerHTML='';
+  const item=(t,f)=>{const b=document.createElement('button');b.setAttribute('role','menuitem');b.textContent=t;b.onclick=()=>{hideMenu();f()};cm2.append(b)};
+  item('Borrar mensaje',()=>delMsg(m));item('Fijar mensaje',()=>openPin(m));
+  cm2.classList.remove('hide');
+  const r=a.getBoundingClientRect(),w=cm2.offsetWidth;
+  cm2.style.left=(r.right+w+8<innerWidth?r.right+4:Math.max(4,r.left-w-4))+'px';
+  cm2.style.top=Math.max(4,Math.min(r.top,innerHeight-cm2.offsetHeight-8))+'px';
+}
 const cm=$('#cm');
 function menu(x,y,m){
   cm.innerHTML='';
@@ -241,12 +322,16 @@ function menu(x,y,m){
   item('Copiar mensaje',()=>copy(m.text));
   item('Copiar mensaje completo',()=>copy('['+m.time+'] '+m.badges.map(b=>'['+b+'] ').join('')+m.name+(m.act?' ':': ')+m.text));
   if(m.id)item('Responder',()=>reply(m));
+  if(m.id&&isMod(m.chan)){
+    const b=document.createElement('button');b.setAttribute('role','menuitem');b.textContent='Moderar ▸';
+    b.onmouseenter=()=>sub(m,b);b.onclick=()=>{sub(m,b);cm2.firstChild.focus()};cm.append(b);
+  }
   cm.classList.remove('hide');
   cm.style.left=Math.max(4,Math.min(x,innerWidth-cm.offsetWidth-8))+'px';
   cm.style.top=Math.max(4,Math.min(y,innerHeight-cm.offsetHeight-8))+'px';
   cm.firstChild.focus();
 }
-function hideMenu(){cm.classList.add('hide')}
+function hideMenu(){cm.classList.add('hide');cm2.classList.add('hide')}
 async function copy(t){try{await navigator.clipboard.writeText(t);toast('Copiado')}catch{toast('No se pudo copiar')}}
 function toast(t){const d=$('#toast');d.textContent=t;d.classList.remove('hide');clearTimeout(toast.t);toast.t=setTimeout(()=>d.classList.add('hide'),1500)}
 function reply(m){
@@ -259,7 +344,7 @@ function clearReply(){replyTo=null;$('#rp').classList.add('hide')}
 $('#rpx').onclick=clearReply;
 $('#panes').addEventListener('contextmenu',e=>{const r=e.target.closest('.m');if(!r||!r._m)return;e.preventDefault();menu(e.clientX,e.clientY,r._m)});
 $('#panes').addEventListener('scroll',hideMenu,true);
-document.addEventListener('click',e=>{if(!cm.contains(e.target))hideMenu()});
+document.addEventListener('click',e=>{if(!cm.contains(e.target)&&!cm2.contains(e.target))hideMenu()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){hideMenu();clearReply()}});
 function sys(c,t){const d=document.createElement('div');d.className='sys';d.textContent=t;push(c,d)}
 function push(c,el){
