@@ -95,6 +95,8 @@ footer input{flex:1;min-width:0}
     <div class="row"><button id="pdno" class="sec">Cancelar</button><button id="pdok">Fijar</button></div>
   </dialog>
   <footer>
+    <button id="up" class="sec" title="Subir archivo a kappa.lol" aria-label="Subir archivo">📎</button>
+    <input type="file" id="fi" class="hide">
     <input id="msg" placeholder="Escribe un mensaje" maxlength="500" autocomplete="off">
     <button id="send">Enviar</button>
   </footer>
@@ -257,6 +259,31 @@ function send(){
   clearReply();i.value='';
 }
 
+const UP_URL='https://kappa.lol/api/upload?skip-cd=true',MAX_UP=100*1024*1024;
+const say=t=>active?sys(active,t):toast(t);
+async function upload(f,ask){
+  if(!f||!me)return;
+  if(f.size>MAX_UP)return say('El archivo pesa más de 100 MiB, que es el máximo de kappa.lol.');
+  if(ask&&!confirm('¿Subir "'+(f.name||'imagen')+'" a kappa.lol?'))return;
+  toast('Subiendo…');
+  try{
+    const fd=new FormData();fd.append('file',f,f.name||'imagen.png');
+    const r=await fetch(UP_URL,{method:'POST',body:fd});
+    if(!r.ok)throw new Error('Error '+r.status);
+    const d=await r.json();
+    if(!d.link)throw new Error('Respuesta inesperada de kappa.lol');
+    const i=$('#msg');i.value=(i.value&&!i.value.endsWith(' ')?i.value+' ':i.value)+d.link+' ';i.focus();
+    toast('Archivo subido');
+    if(d.delete)say('Archivo subido. Para borrarlo: '+d.delete);
+  }catch(e){
+    say('No se pudo subir: '+(e instanceof TypeError?'el navegador bloqueó la conexión con kappa.lol (puede que no permita subidas desde páginas web).':e.message));
+  }
+}
+$('#up').onclick=()=>$('#fi').click();
+$('#fi').onchange=e=>{upload(e.target.files[0],false);e.target.value=''};
+$('#msg').addEventListener('paste',e=>{const f=e.clipboardData&&e.clipboardData.files[0];if(f){e.preventDefault();upload(f,true)}});
+document.addEventListener('dragover',e=>{if(e.dataTransfer&&[...e.dataTransfer.types].includes('Files'))e.preventDefault()});
+document.addEventListener('drop',e=>{const f=e.dataTransfer&&e.dataTransfer.files[0];if(f){e.preventDefault();upload(f,true)}});
 const pinT={},pend={};
 async function refreshPin(c){
   if(!panes[c])return;
