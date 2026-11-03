@@ -228,7 +228,10 @@ function handle(line,s){
   const{tags,prefix,cmd,rest}=parse(line);
   const c=(rest.match(/^#(\S+)/)||[])[1];
   const text=rest.includes(' :')?rest.slice(rest.indexOf(' :')+2):'';
-  if(cmd==='USERSTATE'&&c){const was=isMod(c);ustate[c]=tags;if(isMod(c)&&!was)refreshPin(c)}
+  if(cmd==='USERSTATE'&&c){
+    const was=isMod(c);ustate[c]=tags;if(isMod(c)&&!was)refreshPin(c);
+    if(tags.id&&pend[c]&&pend[c].length){const r=pend[c].shift();r.dataset.id=tags.id;if(r._m)r._m.id=tags.id}
+  }
   else if(cmd==='NOTICE'&&/authentication failed/i.test(rest))logout('No se pudo iniciar sesión. Inténtalo otra vez.');
   else if(cmd==='NOTICE'&&panes[c])sys(c,text);
   else if(cmd==='CLEARMSG'&&panes[c]){const el=panes[c].querySelector('[data-id="'+tags['target-msg-id']+'"]');if(el)el.classList.add('del')}
@@ -248,11 +251,13 @@ function send(){
   if(t[0]==='/'&&!act){runCmd(active,t);i.value='';return}
   const rt=replyTo&&replyTo.chan===active?replyTo:null;
   ws.send((rt?'@reply-parent-msg-id='+rt.id+' ':'')+'PRIVMSG #'+active+' :'+t);
-  add(active,Object.assign({},ustate[active]||{},rt?{'reply-parent-msg-id':rt.id,'reply-parent-display-name':rt.name,'reply-parent-msg-body':rt.body}:{}),me.login,act?t.slice(4):t,act);
+  const tg=Object.assign({},ustate[active]||{},rt?{'reply-parent-msg-id':rt.id,'reply-parent-display-name':rt.name,'reply-parent-msg-body':rt.body}:{});delete tg.id;
+  add(active,tg,me.login,act?t.slice(4):t,act);
+  (pend[active]=pend[active]||[]).push(panes[active].lastElementChild);if(pend[active].length>5)pend[active].shift();
   clearReply();i.value='';
 }
 
-const pinT={};
+const pinT={},pend={};
 async function refreshPin(c){
   if(!panes[c])return;
   if(!isMod(c)){setPin(c,null);return}
@@ -361,6 +366,9 @@ function menu(x,y,m){
   if(m.id&&isMod(m.chan)){
     const b=document.createElement('button');b.setAttribute('role','menuitem');b.textContent='Moderar ▸';
     b.onmouseenter=()=>sub(m,b);b.onclick=()=>{sub(m,b);cm2.firstChild.focus()};cm.append(b);
+  }else{
+    const b=document.createElement('button');b.disabled=true;b.style.opacity='.5';
+    b.textContent=!isMod(m.chan)?'Moderar (no se detecta que seas mod aquí)':'Moderar (el mensaje aún no tiene ID)';cm.append(b);
   }
   cm.classList.remove('hide');
   cm.style.left=Math.max(4,Math.min(x,innerWidth-cm.offsetWidth-8))+'px';
