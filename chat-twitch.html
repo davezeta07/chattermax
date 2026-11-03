@@ -61,6 +61,9 @@ footer input{flex:1;min-width:0}
 .pinbar .pb{flex:1;min-width:0;overflow-wrap:anywhere}
 .pinbar small{color:var(--mut);display:block}
 .pinbar button{padding:.15rem .6rem;font-size:13px}
+#ac{display:flex;flex-wrap:wrap;gap:.3rem;padding:.4rem .8rem;background:var(--panel);border-top:1px solid var(--line)}
+#ac button{display:flex;align-items:center;gap:.35rem;padding:.2rem .6rem;font-weight:400;background:var(--bg);color:var(--tx);border:1px solid var(--line)}
+#ac button.on{border-color:var(--ac)}#ac img{height:1.6em}
 </style></head><body>
 
 <section id="setup" class="hide">
@@ -80,6 +83,8 @@ footer input{flex:1;min-width:0}
     <input id="chan" placeholder="Añadir canal (ej. feeden_)" autocomplete="off">
     <button id="go">Añadir canal</button>
     <button id="tv" class="sec">Ver stream</button>
+    <button id="pip" class="sec" title="Saca el stream a una ventana flotante (Chrome o Edge de computador)">Imagen en imagen</button>
+    <button id="pts" class="sec" title="Abre el chat oficial de Twitch para reclamar y canjear puntos">Puntos de canal</button>
     <button id="out" class="sec">Cerrar sesión</button>
     <span id="st"></span>
   </header>
@@ -94,6 +99,7 @@ footer input{flex:1;min-width:0}
     <select id="pds"><option value="30">30 segundos</option><option value="60">1 minuto</option><option value="300">5 minutos</option><option value="600" selected>10 minutos</option><option value="1200">20 minutos</option><option value="1800">30 minutos</option><option value="0">Hasta que termine el stream</option></select>
     <div class="row"><button id="pdno" class="sec">Cancelar</button><button id="pdok">Fijar</button></div>
   </dialog>
+  <div id="ac" class="hide" role="listbox"></div>
   <footer>
     <button id="up" class="sec" title="Subir archivo a kappa.lol" aria-label="Subir archivo">📎</button>
     <input type="file" id="fi" class="hide">
@@ -131,7 +137,15 @@ $('#out').onclick=()=>logout();
 $('#go').onclick=()=>{open($('#chan').value);$('#chan').value=''};
 $('#chan').onkeydown=e=>{if(e.key==='Enter')$('#go').click()};
 $('#send').onclick=()=>send();
-$('#msg').onkeydown=e=>{if(e.key==='Enter')send()};
+$('#msg').onkeydown=e=>{
+  if(acList.length){
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();acNav=true;acIdx=(acIdx+(e.key==='ArrowDown'?1:acList.length-1))%acList.length;return acRender()}
+    if(e.key==='Tab'||(e.key==='Enter'&&acNav)){e.preventDefault();return acPick(acIdx)}
+    if(e.key==='Escape'){acList=[];return acRender()}
+  }
+  if(e.key==='Enter')send();
+};
+$('#msg').addEventListener('input',()=>acUpdate());
 
 function show(w,msg){
   $('#setup').classList.toggle('hide',w!=='setup');
@@ -154,7 +168,7 @@ async function init(){
     me=await r.json();
   }catch{return logout('Tu sesión expiró. Inicia sesión otra vez.')}
   if(!SCOPES.every(x=>(me.scopes||[]).includes(x)))return logout('La app ahora también modera. Inicia sesión otra vez para aceptar los permisos nuevos.');
-  show('app');
+  show('app');load7g();
   let saved=[];try{saved=JSON.parse(ls.get('chans')||'[]')}catch{}
   const old=ls.get('chan');if(!saved.length&&old)saved=[old];
   saved.forEach(c=>open(c,false));
@@ -179,18 +193,19 @@ function open(name,sel=true){
 }
 function showVideo(){
   $('#main').classList.toggle('vid',vid&&!!active);
-  const v=$('#video');
+  const v=vbox;
   if(vid&&active){
     if(v.dataset.ch!==active){
       v.dataset.ch=active;v.innerHTML='';
       const f=document.createElement('iframe');
       f.src='https://player.twitch.tv/?channel='+encodeURIComponent(active)+'&parent='+location.hostname;
-      f.allowFullscreen=true;f.title='Stream de '+active;v.append(f);
+      f.style.cssText='width:100%;height:100%;border:0';f.allowFullscreen=true;f.title='Stream de '+active;v.append(f);
     }
   }else{v.innerHTML='';v.dataset.ch=''}
   $('#tv').textContent=vid?'Ocultar stream':'Ver stream';
 }
 $('#tv').onclick=()=>{vid=!vid;ls.set('vid',vid?'1':'0');showVideo()};
+$('#pts').onclick=()=>{if(!active)return toast('Abre un canal primero');window.open('https://www.twitch.tv/popout/'+encodeURIComponent(active)+'/chat?popout=','pts_'+active,'popup,width=440,height=720')};
 function select(n){
   active=n;
   for(const c of chans){panes[c].classList.toggle('on',c===n);tabs[c].classList.toggle('on',c===n)}
@@ -230,7 +245,8 @@ function handle(line,s){
   const{tags,prefix,cmd,rest}=parse(line);
   const c=(rest.match(/^#(\S+)/)||[])[1];
   const text=rest.includes(' :')?rest.slice(rest.indexOf(' :')+2):'';
-  if(cmd==='USERSTATE'&&c){
+  if(cmd==='ROOMSTATE'){if(c&&tags['room-id'])load7(c,tags['room-id'])}
+  else if(cmd==='USERSTATE'&&c){
     const was=isMod(c);ustate[c]=tags;if(isMod(c)&&!was)refreshPin(c);
     if(tags.id&&pend[c]&&pend[c].length){const r=pend[c].shift();r.dataset.id=tags.id;if(r._m)r._m.id=tags.id}
   }
@@ -241,7 +257,7 @@ function handle(line,s){
   else if(cmd==='PRIVMSG'&&panes[c]){
     let t=text,act=false;
     if(t.startsWith('\x01ACTION ')){act=true;t=t.slice(8).replace(/\x01$/,'')}
-    add(c,tags,prefix.split('!')[0],t,act);
+    load7(c,tags['room-id']);add(c,tags,prefix.split('!')[0],t,act);
     if(c!==active)tabs[c].classList.add('new');
   }
 }
@@ -256,9 +272,83 @@ function send(){
   const tg=Object.assign({},ustate[active]||{},rt?{'reply-parent-msg-id':rt.id,'reply-parent-display-name':rt.name,'reply-parent-msg-body':rt.body}:{});delete tg.id;
   add(active,tg,me.login,act?t.slice(4):t,act);
   (pend[active]=pend[active]||[]).push(panes[active].lastElementChild);if(pend[active].length>5)pend[active].shift();
-  clearReply();i.value='';
+  clearReply();i.value='';acList=[];acRender();
 }
 
+const E7=Object.create(null),TW=Object.create(null),SEEN={};let E7g=Object.create(null);
+function mapSet(set){const o=Object.create(null);((set&&set.emotes)||[]).forEach(e=>{if(e&&e.name&&e.id)o[e.name]='https://cdn.7tv.app/emote/'+e.id+'/2x.webp'});return o}
+async function load7g(){try{const r=await fetch('https://7tv.io/v3/emote-sets/global');E7g=mapSet(await r.json())}catch{}}
+async function load7(c,rid){
+  if(!rid||E7[c]!==undefined)return;
+  E7[c]=Object.create(null);
+  try{const r=await fetch('https://7tv.io/v3/users/twitch/'+rid);if(!r.ok)return;const d=await r.json();E7[c]=mapSet(d.emote_set)}catch{}
+}
+function txt(body,c,str){
+  if(!str)return;
+  const m7=E7[c]||{};let buf='';
+  str.split(/(\s+)/).forEach(w=>{
+    const u=w&&(m7[w]||E7g[w]);
+    if(u){if(buf){body.append(buf);buf=''}const im=new Image();im.src=u;im.alt=im.title=w;im.className='em';body.append(im)}
+    else buf+=w;
+  });
+  if(buf)body.append(buf);
+}
+let acList=[],acIdx=0,acNav=false;
+function acTok(){const i=$('#msg'),p=i.selectionStart,m=/(\S+)$/.exec(i.value.slice(0,p));return m?{t:m[1],s:p-m[1].length,e:p}:null}
+function acUpdate(){
+  const k=acTok();acList=[];acNav=false;
+  if(k&&active){
+    const q=k.t.toLowerCase();
+    if(q[0]==='@'&&q.length>1){
+      acList=[...(SEEN[active]||[])].filter(n=>n.toLowerCase().startsWith(q.slice(1))).slice(0,8).map(n=>({txt:'@'+n}));
+    }else{
+      const w=q.replace(/^:/,'');
+      if(w.length>=2){
+        const names=new Map();
+        for(const[n,u]of Object.entries({...E7g,...(E7[active]||{})}))names.set(n,u);
+        for(const[n,id]of Object.entries(TW))if(!names.has(n))names.set(n,'https://static-cdn.jtvnw.net/emoticons/v2/'+id+'/default/dark/1.0');
+        const all=[...names].map(([n,u])=>({txt:n,img:u}));
+        const pre=all.filter(x=>x.txt.toLowerCase().startsWith(w));
+        const inc=all.filter(x=>!x.txt.toLowerCase().startsWith(w)&&x.txt.toLowerCase().includes(w));
+        acList=pre.concat(inc).slice(0,8);
+      }
+    }
+    if(acList.length===1&&acList[0].txt===k.t)acList=[];
+  }
+  acIdx=0;acRender();
+}
+function acRender(){
+  const box=$('#ac');box.innerHTML='';
+  acList.forEach((it,n)=>{
+    const b=document.createElement('button');b.type='button';b.setAttribute('role','option');
+    if(n===acIdx)b.className='on';
+    if(it.img){const im=new Image();im.src=it.img;im.alt='';b.append(im)}
+    b.append(it.txt);
+    b.onmousedown=e=>e.preventDefault();
+    b.onclick=()=>acPick(n);
+    box.append(b);
+  });
+  box.classList.toggle('hide',!acList.length);
+}
+function acPick(n){
+  const k=acTok(),it=acList[n],i=$('#msg');if(!k||!it)return;
+  i.value=i.value.slice(0,k.s)+it.txt+' '+i.value.slice(k.e);
+  const pos=k.s+it.txt.length+1;i.setSelectionRange(pos,pos);i.focus();
+  acList=[];acRender();
+}
+const vbox=$('#video');
+async function pip(){
+  if(!vid||!active)return toast('Activa "Ver stream" primero');
+  if(!('documentPictureInPicture' in window))return toast('La imagen en imagen del stream solo funciona en Chrome o Edge de computador');
+  try{
+    const w=await documentPictureInPicture.requestWindow({width:480,height:270});
+    w.document.body.style.cssText='margin:0;background:#000';
+    vbox.style.cssText='display:block;width:100vw;height:100vh';
+    w.document.body.append(vbox);
+    w.addEventListener('pagehide',()=>{vbox.style.cssText='';$('#main').prepend(vbox)});
+  }catch(e){toast('No se pudo abrir la ventana flotante')}
+}
+$('#pip').onclick=pip;
 const UP_URL='https://kappa.lol/api/upload?skip-cd=true',MAX_UP=100*1024*1024;
 const say=t=>active?sys(active,t):toast(t);
 async function upload(f,ask){
@@ -449,12 +539,13 @@ function add(c,tags,login,text,act){
   const cp=[...text],body=document.createElement('span');body.className='t';
   let i=0;
   em.forEach(([a,b,id])=>{
-    if(a>i)body.append(cp.slice(i,a).join(''));
+    if(a>i)txt(body,c,cp.slice(i,a).join(''));
     const im=new Image();im.src='https://static-cdn.jtvnw.net/emoticons/v2/'+id+'/default/dark/1.0';
-    im.alt=im.title=cp.slice(a,b+1).join('');im.className='em';body.append(im);i=b+1;
+    im.alt=im.title=cp.slice(a,b+1).join('');TW[im.alt]=id;im.className='em';body.append(im);i=b+1;
   });
-  body.append(cp.slice(i).join(''));
+  txt(body,c,cp.slice(i).join(''));
   row.append(body);
+  (SEEN[c]||(SEEN[c]=new Set())).add(tags['display-name']||login);
   row._m={id:tags.id||'',login,name:tags['display-name']||login,time:tm.textContent,badges,text,act,chan:c};
   push(c,row);
 }
