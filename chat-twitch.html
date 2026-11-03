@@ -57,6 +57,10 @@ footer input{flex:1;min-width:0}
 #pd select{width:100%;margin:.4rem 0 .9rem}
 #pdt{color:var(--mut);overflow-wrap:anywhere;max-height:5em;overflow:auto;margin:.5rem 0 .8rem}
 #pd .row{display:flex;gap:.5rem;justify-content:flex-end}
+.pinbar{position:sticky;top:0;z-index:2;margin:-.6rem -.9rem .5rem;padding:.5rem .9rem;background:var(--panel);border-bottom:1px solid var(--line);display:flex;gap:.6rem;align-items:flex-start}
+.pinbar .pb{flex:1;min-width:0;overflow-wrap:anywhere}
+.pinbar small{color:var(--mut);display:block}
+.pinbar button{padding:.15rem .6rem;font-size:13px}
 </style></head><body>
 
 <section id="setup" class="hide">
@@ -162,6 +166,7 @@ function open(name,sel=true){
   if(!chans.includes(name)){
     chans.push(name);ls.set('chans',JSON.stringify(chans));
     const p=document.createElement('div');p.className='pane';$('#panes').append(p);panes[name]=p;
+    const pb=document.createElement('div');pb.className='pinbar hide';p.append(pb);
     const t=document.createElement('div');t.className='tab';
     const b=document.createElement('button');b.className='sec';b.textContent=name;b.onclick=()=>select(name);
     const x=document.createElement('button');x.className='sec x';x.textContent='✕';x.title='Cerrar #'+name;x.setAttribute('aria-label','Cerrar '+name);x.onclick=()=>close(name);
@@ -189,6 +194,7 @@ function select(n){
   for(const c of chans){panes[c].classList.toggle('on',c===n);tabs[c].classList.toggle('on',c===n)}
   tabs[n].classList.remove('new');panes[n].scrollTop=panes[n].scrollHeight;showVideo();
   if(replyTo&&replyTo.chan!==n)clearReply();
+  refreshPin(n);
 }
 function close(n){
   if(ws&&ws.readyState===1)ws.send('PART #'+n);
@@ -222,7 +228,7 @@ function handle(line,s){
   const{tags,prefix,cmd,rest}=parse(line);
   const c=(rest.match(/^#(\S+)/)||[])[1];
   const text=rest.includes(' :')?rest.slice(rest.indexOf(' :')+2):'';
-  if(cmd==='USERSTATE'&&c)ustate[c]=tags;
+  if(cmd==='USERSTATE'&&c){const was=isMod(c);ustate[c]=tags;if(isMod(c)&&!was)refreshPin(c)}
   else if(cmd==='NOTICE'&&/authentication failed/i.test(rest))logout('No se pudo iniciar sesión. Inténtalo otra vez.');
   else if(cmd==='NOTICE'&&panes[c])sys(c,text);
   else if(cmd==='CLEARMSG'&&panes[c]){const el=panes[c].querySelector('[data-id="'+tags['target-msg-id']+'"]');if(el)el.classList.add('del')}
@@ -246,6 +252,36 @@ function send(){
   clearReply();i.value='';
 }
 
+const pinT={};
+async function refreshPin(c){
+  if(!panes[c])return;
+  if(!isMod(c)){setPin(c,null);return}
+  try{const d=await api('GET','chat/pins',await qry(c));setPin(c,(d&&d.data&&d.data[0])||null)}catch(e){}
+}
+function setPin(c,p){
+  const bar=panes[c]&&panes[c].querySelector('.pinbar');if(!bar)return;
+  clearTimeout(pinT[c]);bar.innerHTML='';
+  if(!p){bar.classList.add('hide');return}
+  const pb=document.createElement('div');pb.className='pb';
+  const sm=document.createElement('small');
+  sm.textContent='📌 Fijado por '+(p.pinned_by_user_name||'un moderador')+(p.ends_at?'':' · hasta que termine el stream');
+  const who=document.createElement('strong');who.textContent=(p.sender_user_name||'')+': ';
+  pb.append(sm,who);
+  const fr=(p.message&&p.message.fragments)||[];
+  if(fr.length)fr.forEach(f=>{
+    if(f.type==='emote'&&f.emote&&f.emote.id){const im=new Image();im.src='https://static-cdn.jtvnw.net/emoticons/v2/'+f.emote.id+'/default/dark/1.0';im.alt=im.title=f.text;im.className='em';pb.append(im)}
+    else pb.append(f.text||'');
+  });else pb.append((p.message&&p.message.text)||'');
+  bar.append(pb);
+  if(isMod(c)){const b=document.createElement('button');b.className='sec';b.textContent='Desfijar';b.onclick=()=>unpin(c,p);bar.append(b)}
+  bar.classList.remove('hide');
+  if(p.ends_at)pinT[c]=setTimeout(()=>refreshPin(c),Math.max(1000,new Date(p.ends_at)-Date.now())+800);
+}
+async function unpin(c,p){
+  try{await api('DELETE','chat/pins',{...await qry(c),message_id:p.message_id});setPin(c,null);toast('Mensaje desfijado')}
+  catch(e){sys(c,'No se pudo desfijar: '+e.message)}
+}
+setInterval(()=>{if(active&&isMod(active))refreshPin(active)},20000);
 const cm2=$('#cm2');
 const cidNow=()=>fixed?CLIENT_ID:ls.get('cid');
 async function api(method,path,params,body){
@@ -303,7 +339,7 @@ function openPin(m){pinM=m;$('#pdt').textContent=m.name+': '+m.text;$('#pd').sho
 $('#pdno').onclick=()=>$('#pd').close();
 $('#pdok').onclick=async()=>{
   const m=pinM,v=+$('#pds').value;$('#pd').close();
-  try{const p={...await qry(m.chan),message_id:m.id};if(v)p.duration_seconds=v;await api('PUT','chat/pins',p);toast('Mensaje fijado')}
+  try{const p={...await qry(m.chan),message_id:m.id};if(v)p.duration_seconds=v;await api('PUT','chat/pins',p);toast('Mensaje fijado');refreshPin(m.chan)}
   catch(e){sys(m.chan,'No se pudo fijar: '+e.message)}
 };
 function sub(m,a){
@@ -350,7 +386,7 @@ function sys(c,t){const d=document.createElement('div');d.className='sys';d.text
 function push(c,el){
   const p=panes[c],near=p.scrollHeight-p.scrollTop-p.clientHeight<80;
   p.append(el);
-  while(p.children.length>500)p.firstChild.remove();
+  while(p.children.length>501)p.children[1].remove();
   if(near)p.scrollTop=p.scrollHeight;
 }
 function colorOf(n){let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))%360;return'hsl('+h+',70%,68%)'}
