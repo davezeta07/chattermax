@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ChatterMax — Los chats de Twitch y Kick en un solo lugar</title>
+<meta name="description" content="ChatterMax: un cliente de chat para Twitch y Kick con pestañas, emotes de 7TV, moderación y stream. Versión web y versión de escritorio.">
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&family=Sora:wght@600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1117;--panel:#171a23;--line:#272b38;--tx:#eceef4;--mut:#9aa0b4;--tw:#a98bff;--kk:#53fc18;--ink:#0d0f14}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.6 "DM Sans",system-ui,"Segoe UI",Roboto,sans-serif;
+  background-image:radial-gradient(800px 420px at 8% -5%,rgba(145,70,255,.28),transparent 70%),radial-gradient(800px 420px at 95% 30%,rgba(83,252,24,.14),transparent 70%)}
+h1,h2,h3{font-family:Sora,system-ui,sans-serif;line-height:1.15;margin:0}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--tw);outline-offset:3px}
+.wrap{max-width:1020px;margin:0 auto;padding:0 1.25rem}
+.hero{padding:4.5rem 0 2.5rem;text-align:center}
+.logo{width:112px;height:112px;margin:0 auto 1.2rem;display:block;filter:drop-shadow(0 10px 30px rgba(145,70,255,.4))}
+.hero h1{font-size:clamp(2.2rem,6vw,3.6rem);font-weight:800;letter-spacing:-.02em}
+.hero h1 span{background:linear-gradient(100deg,var(--tw),var(--kk));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--mut);max-width:560px;margin:1rem auto 0;font-size:1.1rem}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin:2.2rem 0 3rem}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:1.6rem;display:flex;flex-direction:column;gap:.9rem;position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;inset:0 0 auto 0;height:4px;background:var(--c)}
+.card.tw{--c:var(--tw)}.card.kk{--c:var(--kk)}
+.badge{align-self:flex-start;font-size:.8rem;font-weight:500;padding:.2rem .7rem;border-radius:99px;border:1px solid var(--c);color:var(--c)}
+.card h2{font-size:1.5rem}
+.card p{margin:0;color:var(--mut)}
+.card ul{margin:0;padding-left:1.15rem;color:var(--tx)}
+.card li{margin:.25rem 0}
+.card li::marker{color:var(--c)}
+.btn{display:inline-block;text-align:center;text-decoration:none;font-weight:500;padding:.8rem 1.3rem;border-radius:12px;background:var(--c);color:var(--ink);margin-top:auto}
+.btn:hover{filter:brightness(1.1)}
+.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
+.note{font-size:.88rem;color:var(--mut);margin:0}
+.note strong{color:var(--tx);font-weight:500}
+section.block{margin:0 0 3rem}
+section.block h2{font-size:1.6rem;margin-bottom:1.1rem}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
+.feat{border:1px solid var(--line);border-radius:14px;padding:1.1rem;background:rgba(23,26,35,.6)}
+.feat h3{font-size:1.02rem;margin-bottom:.35rem}
+.feat p{margin:0;color:var(--mut);font-size:.94rem}
+.steps{margin:0;padding-left:1.2rem;color:var(--mut)}
+.steps li{margin:.4rem 0}.steps strong{color:var(--tx);font-weight:500}
+.insp{color:var(--mut);text-align:center;margin:0 0 3rem}
+footer{border-top:1px solid var(--line);padding:2rem 0 2.6rem;text-align:center}
+footer .by{font-family:Sora,sans-serif;font-weight:600;font-size:1.05rem}
+footer .by strong{background:linear-gradient(100deg,var(--tw),var(--kk));-webkit-background-clip:text;background-clip:text;color:transparent}
+footer a.tv{display:inline-block;margin-top:.5rem;color:var(--tw);text-decoration:none;font-weight:500}
+footer a.tv:hover{text-decoration:underline}
+footer small{display:block;margin-top:1.1rem;color:var(--mut);font-size:.8rem}
+@media(max-width:780px){.cards{grid-template-columns:1fr}.grid{grid-template-columns:1fr 1fr}.hero{padding-top:3rem}}
+@media(max-width:520px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="hero">
+    <img class="logo" src="logo.png" alt="Logo de ChatterMax" width="112" height="112" onerror="this.remove()">
+    <h1>Chatter<span>Max</span></h1>
+    <p>Los chats de <strong>Twitch</strong> y <strong>Kick</strong> en un solo lugar: pestañas, emotes, moderación y stream, sin complicaciones.</p>
+  </header>
+
+  <div class="cards" id="versiones">
+    <article class="card tw">
+      <span class="badge">Solo Twitch</span>
+      <h2>Versión web</h2>
+      <p>No hay nada que instalar: se abre en tu navegador, inicias sesión con Twitch y listo.</p>
+      <ul>
+        <li>Varios chats de Twitch en pestañas</li>
+        <li>Emotes de Twitch y 7TV con buscador</li>
+        <li>Responder, copiar mensajes y subir archivos</li>
+        <li>Moderación y mensaje fijado si eres mod</li>
+        <li>Ver el stream junto al chat</li>
+      </ul>
+      <a class="btn" href="https://davezeta07.github.io/chattermax/chat-twitch.html">Abrir la versión web</a>
+    </article>
+
+    <article class="card kk">
+      <span class="badge">Twitch + Kick · La más actualizada</span>
+      <h2>Versión de escritorio</h2>
+      <p>Un programa para Windows con todo lo de la versión web, y además <strong>Kick</strong>.</p>
+      <ul>
+        <li>Todo lo de la versión web</li>
+        <li>Chats de Kick: leer, escribir y moderar</li>
+        <li>Cambio entre Twitch y Kick con un clic</li>
+        <li>Emotes de Kick y sesión guardada</li>
+        <li>Se abre como cualquier programa</li>
+      </ul>
+      <a class="btn" id="dl" href="https://github.com/davezeta07/chattermax/releases/latest/download/ChatterMax-Setup.exe">Descargar para Windows</a>
+      <p class="note">Al abrirlo por primera vez, Windows puede mostrar “Windows protegió tu PC” porque el programa no está firmado. Pulsa <strong>Más información</strong> y luego <strong>Ejecutar de todas formas</strong>.</p>
+    </article>
+  </div>
+
+  <section class="block" id="que-trae">
+    <h2>Qué trae</h2>
+    <div class="grid">
+      <div class="feat"><h3>Pestañas</h3><p>Todos tus canales abiertos a la vez, cada plataforma con sus propias pestañas.</p></div>
+      <div class="feat"><h3>Emotes</h3><p>Selector con los emotes del canal, los globales y los de 7TV, y autocompletado al escribir.</p></div>
+      <div class="feat"><h3>Moderación</h3><p>Timeout, ban y borrar mensajes por comando o con clic derecho, en canales donde seas mod.</p></div>
+      <div class="feat"><h3>Stream en la misma ventana</h3><p>Mira el video junto al chat, con imagen en imagen en Chrome o Edge de computador.</p></div>
+      <div class="feat"><h3>Subir archivos</h3><p>Sube imágenes y archivos a kappa.lol con un botón, pegando o arrastrando.</p></div>
+      <div class="feat"><h3>Tutorial incluido</h3><p>La primera vez que lo abres, una guía corta te explica cómo usar todo.</p></div>
+    </div>
+  </section>
+
+  <section class="block" id="instalar">
+    <h2>Cómo empezar con la versión de escritorio</h2>
+    <ol class="steps">
+      <li><strong>Descarga</strong> el instalador y ábrelo.</li>
+      <li>Si Windows avisa que protegió tu PC, pulsa <strong>Más información</strong> y <strong>Ejecutar de todas formas</strong>.</li>
+      <li>Abre ChatterMax y pulsa <strong>Iniciar sesión con Twitch</strong>: se abre tu navegador, autorizas y vuelves.</li>
+      <li>Añade un canal. Para Kick, cambia de plataforma con el botón del logo en la esquina.</li>
+    </ol>
+  </section>
+
+  <p class="insp">Inspirado en las apps Chatterino, KickTalk y Kickerino.</p>
+</main>
+
+<footer>
+  <div class="by">Proyecto por: <strong>davezeta07</strong></div>
+  <a class="tv" href="https://www.twitch.tv/davezeta07" target="_blank" rel="noopener">twitch.tv/davezeta07</a>
+  <small>ChatterMax es un proyecto independiente y no está afiliado a Twitch ni a Kick.</small>
+</footer>
+
+<script>
+(function(){
+  var a=document.getElementById('dl');
+  if(a.getAttribute('href').indexOf('PEGA_AQUI')===0){
+    a.setAttribute('aria-disabled','true');
+    a.removeAttribute('href');
+    a.textContent='Descarga disponible pronto';
+  }
+})();
+</script>
+</body>
+</html>
